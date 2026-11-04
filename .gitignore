@@ -1,0 +1,8 @@
+# Runtime config with real DB credentials must never be committed.
+# Copy config/database.example.php -> config/database.php locally,
+# or let install.php generate it for you on the server.
+config/database.php
+
+# Uploaded book covers are runtime data
+uploads/covers/*
+!uploads/covers/.htaccess
