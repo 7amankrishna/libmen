@@ -1,179 +1,34 @@
-/* Library Management System — front-end helpers */
-(function () {
-  'use strict';
+const api = async (action, data = {}) => {
+  const res = await fetch(`api.php?action=${encodeURIComponent(action)}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)});
+  const json = await res.json().catch(() => ({ok:false,error:'The server did not return JSON.'}));
+  if (!res.ok || !json.ok) throw new Error(json.error || 'Request failed.');
+  return json;
+};
+const $ = s => document.querySelector(s);
+const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const date = d => d ? new Date(`${d}T00:00:00`).toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'}) : '—';
+const todayPlus = n => { const d=new Date();d.setDate(d.getDate()+n);return d.toISOString().slice(0,10); };
+let books=[], members=[];
+let active = location.hash.slice(1) || 'dashboard';
 
-  /* ---- flash toast auto-dismiss ---- */
-  var toast = document.getElementById('toast');
-  if (toast) setTimeout(function () { toast.style.opacity = '0'; toast.style.transition = 'opacity .4s'; setTimeout(function () { toast.remove(); }, 420); }, 4500);
+function notice(message, error=false){const n=$('#notice');n.textContent=message;n.className=`notice show${error?' error':''}`;clearTimeout(notice.timer);notice.timer=setTimeout(()=>n.className='notice',3400)}
+function setStatus(text, bad=false){const s=$('#apiStatus');s.textContent=text;s.className=`status ${bad?'error':'ok'}`}
+function showView(view){active=view;location.hash=view;document.querySelectorAll('.view').forEach(x=>x.classList.toggle('hidden',x.id!==view));document.querySelectorAll('.nav-link').forEach(x=>x.classList.toggle('active',x.dataset.view===view));load(view)}
+async function load(view){try{if(view==='dashboard')await dashboard();if(view==='books')await loadBooks();if(view==='members')await loadMembers();if(view==='loans')await loadLoans();if(view==='reports')await loadReport();setStatus('Database connected')}catch(e){setStatus('Connection error',true);notice(e.message,true)}}
+function stat(label,value,detail,cls=''){return `<article class="stat"><small>${label}</small><strong>${value}</strong><span class="tag ${cls}">${detail}</span></article>`}
+function empty(target,msg='Nothing to show yet.'){$(target).innerHTML=`<div class="empty">${msg}</div>`}
 
-  /* ---- mobile sidebar ---- */
-  var toggle = document.getElementById('navToggle');
-  var sidebar = document.getElementById('sidebar');
-  if (toggle && sidebar) {
-    toggle.addEventListener('click', function () { sidebar.classList.toggle('open'); });
-    document.addEventListener('click', function (ev) {
-      if (sidebar.classList.contains('open') && !sidebar.contains(ev.target) && ev.target !== toggle && !toggle.contains(ev.target)) {
-        sidebar.classList.remove('open');
-      }
-    });
-  }
+async function dashboard(){const d=await api('dashboard');const s=d.stats;$('#statCards').innerHTML=stat('Books',s.books,`${s.copies} total copies`)+stat('Members',s.members,'Registered borrowers')+stat('Issued',s.issued,`${s.available} copies available`)+stat('Overdue',s.overdue,s.overdue?'Needs follow-up':'All clear',s.overdue?'':'');$('#recentLoans').innerHTML=d.recent.length?d.recent.map(x=>`<div class="feed-row"><div><strong>${esc(x.title)}</strong><span>${esc(x.member_name)} · issued ${date(x.issue_date)}</span></div><span class="badge ${x.status==='returned'?'green':''}">${x.status}</span></div>`).join(''):'<div class="empty">Issue your first book to see activity here.</div>'}
+async function loadBooks(){const d=await api('books',{q:$('#bookSearch').value,category:$('#bookCategory').value});books=d.books;const current=$('#bookCategory').value;$('#bookCategory').innerHTML='<option value="">All categories</option>'+d.categories.map(x=>`<option ${x===current?'selected':''}>${esc(x)}</option>`).join('');$('#booksTable').innerHTML=books.length?`<table><thead><tr><th>Book</th><th>Category</th><th>ISBN</th><th>Availability</th><th></th></tr></thead><tbody>${books.map(b=>`<tr><td><span class="book-title">${esc(b.title)}</span><br><span class="muted">${esc(b.author)}</span></td><td>${esc(b.category)}</td><td>${esc(b.isbn||'—')}</td><td><span class="badge ${+b.available?'green':'red'}">${b.available} / ${b.copies} available</span></td><td><div class="table-actions"><button class="small-btn" data-edit-book="${b.id}">Edit</button><button class="small-btn danger" data-delete-book="${b.id}">Delete</button></div></td></tr>`).join('')}</tbody></table>`:'<div class="empty">No books found.</div>';}
+async function loadMembers(){const d=await api('members',{q:$('#memberSearch').value,status:$('#memberStatus').value});members=d.members;$('#membersTable').innerHTML=members.length?`<table><thead><tr><th>Member</th><th>Type</th><th>Membership</th><th>Books out</th><th></th></tr></thead><tbody>${members.map(m=>`<tr><td><span class="book-title">${esc(m.name)}</span><br><span class="muted">${esc(m.member_code)} · ${esc(m.email)}</span></td><td>${esc(m.membership)}</td><td><span class="badge ${m.status==='Active'?'green':'red'}">${esc(m.status)}</span><br><span class="muted">until ${date(m.valid_till)}</span></td><td>${m.open_loans} / ${m.max_books}</td><td><div class="table-actions"><button class="small-btn" data-edit-member="${m.id}">Edit</button><button class="small-btn danger" data-delete-member="${m.id}">Delete</button></div></td></tr>`).join('')}</tbody></table>`:'<div class="empty">No members found.</div>';}
+async function options(){const d=await api('loan-options');$('#issueBook').innerHTML='<option value="">Select available book</option>'+d.books.map(b=>`<option value="${b.id}">${esc(b.title)} — ${esc(b.author)} (${b.available} available)</option>`).join('');$('#issueMember').innerHTML='<option value="">Select active member</option>'+d.members.map(m=>`<option value="${m.id}">${esc(m.name)} (${esc(m.member_code)})</option>`).join('')}
+async function loadLoans(){await options();const d=await api('loans',{status:$('#loanFilter').value});$('#loansTable').innerHTML=d.loans.length?`<table><thead><tr><th>Book</th><th>Member</th><th>Issued / due</th><th>Status</th><th></th></tr></thead><tbody>${d.loans.map(l=>{const overdue=l.status==='issued'&&l.due_date<todayPlus(0);return `<tr><td><span class="book-title">${esc(l.title)}</span><br><span class="muted">${esc(l.author)}</span></td><td>${esc(l.member_name)}<br><span class="muted">${esc(l.member_code)}</span></td><td>${date(l.issue_date)}<br><span class="muted">due ${date(l.due_date)}</span></td><td><span class="badge ${overdue?'red':l.status==='returned'?'green':''}">${overdue?'Overdue':esc(l.status)}</span>${l.fine>0?`<br><span class="muted">Fine ₹${l.fine}</span>`:''}</td><td>${l.status==='issued'?`<button class="small-btn" data-return="${l.id}">Return</button>`:'—'}</td></tr>`}).join('')}</tbody></table>`:'<div class="empty">No loans found.</div>'}
+async function loadReport(){const d=await api('report',{range:$('#reportRange').value});const s=d.stats;$('#reportStats').innerHTML=stat('Issues',s.issues,'Selected period')+stat('Returns',s.returns,'Selected period')+stat('Overdue',s.overdue,'Open overdue loans')+stat('Active members',s.active_members,'Ready to borrow');const max=Math.max(...d.categories.map(x=>+x.total),1);$('#categoryBars').innerHTML=d.categories.length?d.categories.map(x=>`<div><div class="bar-label"><span>${esc(x.category)}</span><strong>${x.total}</strong></div><div class="bar"><i style="width:${x.total/max*100}%"></i></div></div>`).join(''):'<div class="empty">No issues in this period.</div>';$('#overdueList').innerHTML=d.overdue.length?d.overdue.map(x=>`<div class="feed-row"><div><strong>${esc(x.title)}</strong><span>${esc(x.member_name)} · due ${date(x.due_date)}</span></div><button class="small-btn" data-remind="${x.id}">Mark reminded</button></div>`).join(''):'<div class="empty">No overdue books. Nice work.</div>'}
 
-  /* ---- close user dropdown on outside click ---- */
-  document.addEventListener('click', function (ev) {
-    document.querySelectorAll('details.usermenu[open]').forEach(function (d) {
-      if (!d.contains(ev.target)) d.removeAttribute('open');
-    });
-  });
+function field(label,name,type='text',value='',extra=''){return `<label>${label}<input name="${name}" type="${type}" value="${esc(value)}" ${extra}></label>`}
+function openModal(kind, item={}){const f=$('#modalFields');$('#modalTitle').textContent=item.id?`Edit ${kind==='book'?'book':'member'}`:`Add ${kind==='book'?'book':'member'}`;f.dataset.kind=kind;f.dataset.id=item.id||'';if(kind==='book'){f.innerHTML=field('Title *','title','text',item.title||'','required maxlength="255"')+field('Author *','author','text',item.author||'','required maxlength="255"')+field('ISBN','isbn','text',item.isbn||'')+field('Call number','call_no','text',item.call_no||'')+field('Category *','category','text',item.category||'Other','required')+field('Total copies *','copies','number',item.copies||1,'required min="1" max="10000"')}else{f.innerHTML=field('Full name *','name','text',item.name||'','required')+field('Email *','email','email',item.email||'','required')+field('Phone','phone','text',item.phone||'')+`<label>Membership<select name="membership"><option ${item.membership==='Student'?'selected':''}>Student</option><option ${item.membership==='Faculty'?'selected':''}>Faculty</option><option ${!item.membership||item.membership==='General'?'selected':''}>General</option></select></label>`+field('Member since *','member_since','date',item.member_since||todayPlus(0),'required')+field('Valid till *','valid_till','date',item.valid_till||todayPlus(365),'required')+field('Maximum books *','max_books','number',item.max_books||5,'required min="1" max="20"')+`<label>Status<select name="status"><option ${item.status!=='Suspended'?'selected':''}>Active</option><option ${item.status==='Suspended'?'selected':''}>Suspended</option></select></label>`}$('#modal').showModal()}
 
-  /* ---- confirm before destructive actions ---- */
-  document.querySelectorAll('form[data-confirm]').forEach(function (f) {
-    f.addEventListener('submit', function (ev) {
-      if (!window.confirm(f.getAttribute('data-confirm'))) ev.preventDefault();
-    });
-  });
-
-  /* ---- live due-date preview on the issue form ---- */
-  var issueDate = document.getElementById('issue_date');
-  var loanDays = document.getElementById('loan_days');
-  var duePrev = document.getElementById('due_preview');
-  function updateDue() {
-    if (!issueDate || !loanDays || !duePrev) return;
-    var d = new Date(issueDate.value + 'T00:00:00');
-    if (isNaN(d)) { duePrev.textContent = '—'; return; }
-    d.setDate(d.getDate() + (parseInt(loanDays.value, 10) || 0));
-    duePrev.textContent = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-  }
-  if (issueDate) { issueDate.addEventListener('change', updateDue); loanDays.addEventListener('input', updateDue); updateDue(); }
-
-  /* ---- auto-submit filter forms on change ---- */
-  document.querySelectorAll('form[data-autosubmit] select').forEach(function (s) {
-    s.addEventListener('change', function () { s.closest('form').submit(); });
-  });
-
-  /* ============================ charts ================================== */
-  if (typeof Chart === 'undefined') return;
-
-  Chart.defaults.font.family = "'Inter', system-ui, sans-serif";
-  Chart.defaults.font.size = 11.5;
-  Chart.defaults.color = '#6f6a85';
-
-  var centerTextPlugin = {
-    id: 'centerText',
-    afterDraw: function (chart) {
-      var opt = chart.config.options.plugins && chart.config.options.plugins.centerText;
-      if (!opt) return;
-      var area = chart.chartArea;
-      var x = (area.left + area.right) / 2, y = (area.top + area.bottom) / 2;
-      var ctx = chart.ctx;
-      ctx.save();
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillStyle = '#211a33'; ctx.font = "800 26px Inter, sans-serif";
-      ctx.fillText(opt.top, x, y - 8);
-      ctx.fillStyle = '#6f6a85'; ctx.font = "600 11.5px Inter, sans-serif";
-      ctx.fillText(opt.bottom, x, y + 14);
-      ctx.restore();
-    }
-  };
-
-  var barValuePlugin = {
-    id: 'barValues',
-    afterDatasetsDraw: function (chart) {
-      var meta = chart.getDatasetMeta(0);
-      var ctx = chart.ctx;
-      ctx.save();
-      ctx.fillStyle = '#211a33'; ctx.font = "700 12px Inter, sans-serif";
-      ctx.textAlign = 'center';
-      meta.data.forEach(function (bar, i) {
-        var v = chart.data.datasets[0].data[i];
-        if (v === null || v === undefined) return;
-        ctx.fillText(String(v), bar.x, bar.y - 7);
-      });
-      ctx.restore();
-    }
-  };
-  Chart.register(centerTextPlugin, barValuePlugin);
-
-  var tooltipStyle = {
-    backgroundColor: '#211a33', titleColor: '#fff', bodyColor: '#e6e1f5',
-    padding: 10, cornerRadius: 10, boxPadding: 4, usePointStyle: true
-  };
-
-  window.LibCharts = {
-    donut: function (id, data, centerTop, centerBottom) {
-      var el = document.getElementById(id);
-      if (!el) return;
-      var total = data.values.reduce(function (a, b) { return a + b; }, 0);
-      if (!total) { el.parentNode.innerHTML = '<div class="chart-empty">No data yet</div>'; return; }
-      new Chart(el, {
-        type: 'doughnut',
-        data: {
-          labels: data.labels,
-          datasets: [{ data: data.values, backgroundColor: data.colors, borderWidth: 0, hoverOffset: 6 }]
-        },
-        options: {
-          cutout: '72%', maintainAspectRatio: false,
-          plugins: {
-            centerText: { top: centerTop, bottom: centerBottom },
-            legend: { display: false },
-            tooltip: Object.assign({}, tooltipStyle, {
-              callbacks: {
-                label: function (c) {
-                  var pct = total ? Math.round(c.parsed / total * 100) : 0;
-                  return ' ' + c.label + ': ' + c.parsed + ' (' + pct + '%)';
-                }
-              }
-            })
-          }
-        }
-      });
-    },
-
-    line: function (id, labels, loans, returns) {
-      var el = document.getElementById(id);
-      if (!el) return;
-      var has = loans.some(function (v) { return v > 0; }) || returns.some(function (v) { return v > 0; });
-      if (!has) { el.parentNode.innerHTML = '<div class="chart-empty">No loans in this period yet</div>'; return; }
-      new Chart(el, {
-        type: 'line',
-        data: {
-          labels: labels,
-          datasets: [
-            { label: 'Loans (Checkouts)', data: loans, borderColor: '#7c3aed', backgroundColor: 'rgba(124,58,237,.14)', fill: true, tension: .38, pointRadius: 2.5, pointHoverRadius: 5, borderWidth: 2.2 },
-            { label: 'Returns', data: returns, borderColor: '#34d399', backgroundColor: 'rgba(52,211,153,.12)', fill: true, tension: .38, pointRadius: 2.5, pointHoverRadius: 5, borderWidth: 2.2 }
-          ]
-        },
-        options: {
-          maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
-          plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 8 } }, tooltip: tooltipStyle },
-          scales: {
-            x: { grid: { display: false }, ticks: { maxTicksLimit: 10 } },
-            y: { beginAtZero: true, grid: { color: '#f0ecf9' }, ticks: { precision: 0 } }
-          }
-        }
-      });
-    },
-
-    bars: function (id, labels, values, color) {
-      var el = document.getElementById(id);
-      if (!el) return;
-      var has = values.some(function (v) { return v > 0; });
-      if (!has) { el.parentNode.innerHTML = '<div class="chart-empty">No checkouts in this period yet</div>'; return; }
-      var palette = ['#7c3aed', '#4ade80', '#a78bfa', '#86efac', '#fca5a5'];
-      new Chart(el, {
-        type: 'bar',
-        data: {
-          labels: labels,
-          datasets: [{ label: 'Checkouts', data: values, backgroundColor: palette, borderRadius: 8, maxBarThickness: 64 }]
-        },
-        options: {
-          maintainAspectRatio: false,
-          plugins: { legend: { display: false }, tooltip: tooltipStyle },
-          scales: {
-            x: { grid: { display: false } },
-            y: { beginAtZero: true, grid: { color: '#f0ecf9' }, ticks: { precision: 0 } }
-          }
-        }
-      });
-    }
-  };
-})();
+document.addEventListener('click',async e=>{const go=e.target.closest('[data-goto]');if(go){showView(go.dataset.goto);if(go.dataset.open)openModal(go.dataset.open);return}const b=e.target.closest('[data-edit-book],[data-edit-member],[data-delete-book],[data-delete-member],[data-return],[data-remind]');if(!b)return;try{if(b.dataset.editBook)openModal('book',books.find(x=>x.id==b.dataset.editBook));if(b.dataset.editMember)openModal('member',members.find(x=>x.id==b.dataset.editMember));if(b.dataset.deleteBook&&confirm('Delete this book?')){await api('delete-book',{id:b.dataset.deleteBook});notice('Book deleted.');loadBooks()}if(b.dataset.deleteMember&&confirm('Delete this member?')){await api('delete-member',{id:b.dataset.deleteMember});notice('Member deleted.');loadMembers()}if(b.dataset.return){await api('return',{id:b.dataset.return});notice('Book returned.');loadLoans()}if(b.dataset.remind){await api('remind',{id:b.dataset.remind});notice('Reminder marked as sent.');loadReport()}}catch(err){notice(err.message,true)}});
+$('#modalForm').addEventListener('submit',async e=>{e.preventDefault();const form=$('#modalFields'),data=Object.fromEntries(new FormData(form));if(form.dataset.id)data.id=form.dataset.id;try{const r=await api(form.dataset.kind==='book'?'save-book':'save-member',data);$('#modal').close();notice(r.message);load(form.dataset.kind==='book'?'books':'members')}catch(err){notice(err.message,true)}});
+$('#issueForm').addEventListener('submit',async e=>{e.preventDefault();try{const r=await api('issue',Object.fromEntries(new FormData(e.target)));notice(r.message);e.target.reset();loadLoans()}catch(err){notice(err.message,true)}});
+['bookSearch','memberSearch'].forEach(id=>$("#"+id).addEventListener('input',()=>load(id.startsWith('book')?'books':'members')));$('#bookCategory').addEventListener('change',loadBooks);$('#memberStatus').addEventListener('change',loadMembers);$('#loanFilter').addEventListener('change',loadLoans);$('#reportRange').addEventListener('change',loadReport);window.addEventListener('hashchange',()=>showView(location.hash.slice(1)||'dashboard'));$('#dueDate').value=todayPlus(14);$('#menuBtn').addEventListener('click',()=>$('.sidebar').classList.toggle('open'));showView(active);

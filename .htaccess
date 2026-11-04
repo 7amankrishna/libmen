@@ -1,9 +1,5 @@
-# Library Management System - root .htaccess
 Options -Indexes
-
-# Protect sensitive directories from direct web access
-# (each of these folders also contains its own .htaccess with "Require all denied")
-RedirectMatch 404 ^/(config|database|includes|actions)/.*\.php$
-
-# Default charset
 AddDefaultCharset UTF-8
+<FilesMatch "^database\.php$">
+  Require all denied
+</FilesMatch>

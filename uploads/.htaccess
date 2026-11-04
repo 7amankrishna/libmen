@@ -1,5 +1,0 @@
-Options -Indexes
-# Never allow PHP execution inside uploads
-<FilesMatch "\.ph(p[0-9]?|tml)$">
-  Require all denied
-</FilesMatch>
