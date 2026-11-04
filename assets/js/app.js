@@ -13,7 +13,7 @@ let active = location.hash.slice(1) || 'dashboard';
 
 function notice(message, error=false){const n=$('#notice');n.textContent=message;n.className=`notice show${error?' error':''}`;clearTimeout(notice.timer);notice.timer=setTimeout(()=>n.className='notice',3400)}
 function setStatus(text, bad=false){const s=$('#apiStatus');s.textContent=text;s.className=`status ${bad?'error':'ok'}`}
-function showView(view){active=view;location.hash=view;document.querySelectorAll('.view').forEach(x=>x.classList.toggle('hidden',x.id!==view));document.querySelectorAll('.nav-link').forEach(x=>x.classList.toggle('active',x.dataset.view===view));load(view)}
+function showView(view){active=view;location.hash=view;$('.sidebar').classList.remove('open');document.querySelectorAll('.view').forEach(x=>x.classList.toggle('hidden',x.id!==view));document.querySelectorAll('.nav-link').forEach(x=>x.classList.toggle('active',x.dataset.view===view));load(view)}
 async function load(view){try{if(view==='dashboard')await dashboard();if(view==='books')await loadBooks();if(view==='members')await loadMembers();if(view==='loans')await loadLoans();if(view==='reports')await loadReport();setStatus('Database connected')}catch(e){setStatus('Connection error',true);notice(e.message,true)}}
 function stat(label,value,detail,cls=''){return `<article class="stat"><small>${label}</small><strong>${value}</strong><span class="tag ${cls}">${detail}</span></article>`}
 function empty(target,msg='Nothing to show yet.'){$(target).innerHTML=`<div class="empty">${msg}</div>`}
